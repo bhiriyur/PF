@@ -39,7 +39,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
   std::normal_distribution<double> yrand(y    ,std[1]);
   std::normal_distribution<double> trand(theta,std[2]);
 
-  num_particles = 100;
+  num_particles = 50;
   for (int i = 0; i< num_particles; ++i) {
     Particle P;
     P.id     = i;
@@ -93,7 +93,7 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
     }
     else {      
       particles[i].x     = x0 + velocity * delta_t * cos(t0) + xrand(gen);
-      particles[i].y     = x0 + velocity * delta_t * sin(t0) + yrand(gen);
+      particles[i].y     = y0 + velocity * delta_t * sin(t0) + yrand(gen);
       particles[i].theta = t0 + trand(gen);
     }
 
@@ -180,12 +180,16 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
       double yj = map_landmarks.landmark_list[j].y_f;
 
       // Subselect only those landmarks within sensor range from particle i and add to predictions
-      if (std::fabs(xj-xi) <= sensor_range && std::fabs(yi-yj) <= sensor_range) {
+      if (std::fabs(xj-xi) <= 2*sensor_range && std::fabs(yi-yj) <= 2*sensor_range) {
 	predictions.push_back(LandmarkObs{idj, xj, yj});
 	num_predictions++;
       }
     }
-
+    if (num_predictions <= 0) {
+      std::cout << " Num predictions = 0!!" << std::endl;
+      return;
+    }
+    
     // Now transform observations to MAP coordinate system and...
     double ct = std::cos(ti);
     double st = std::sin(ti);
@@ -221,8 +225,8 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
       // Locate appropriate predicted measurement - mu_i
       bool found = false;
       int j = 0;
-      double x_obs = 0.0;
-      double y_obs = 0.0;
+      double x_obs = predictions[j].x;
+      double y_obs = predictions[j].y;
 
       while (!found && j<num_predictions) {
 	if (predictions[j].id == id_meas) {
@@ -232,6 +236,8 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 	}
 	j++;
       }
+
+      if (!found) std::cout << "NOT FOUND!!" << std::endl;
 
       //assert(found==true);
 
@@ -261,12 +267,11 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
       */   
       
       // Update weight (using bivariate gaussian normal distribution with cross-correlation rho = 0)
-      double a1 = (x_meas-x_obs)*(x_meas-x_obs)/(2*sx*sx) + (y_meas-y_obs)*(y_meas-y_obs)/(2*sy*sy);
-      double wj = factor*exp(-a1);
-      w = w*wj;
+      w *= factor*exp(-((x_meas-x_obs)*(x_meas-x_obs)/(2*sx*sx) + (y_meas-y_obs)*(y_meas-y_obs)/(2*sy*sy)));
+      
       if (DEBUG) {
 	std::cout << " w update " << std::setw(4) << k;
-	std::cout << " to " << std::setw(12) << a1;
+	std::cout << " to " << std::setw(12) << w;
 	std::cout << " fac " << std::setw(12) << factor;
 	std::cout << " sx  " << std::setw(12) << sx;
 	std::cout << " sx  " << std::setw(12) << sy;	
@@ -276,6 +281,7 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
       }
     }
     particles[i].weight = w;
+    weights[i] = w;
 
     if (DEBUG) {
       std::cout << " FINAL W = " << std::setw(12) << w << std::endl;
@@ -290,12 +296,7 @@ void ParticleFilter::resample() {
   std::random_device rd;
   std::mt19937 gen(rd());
     
-  std::vector<double> all_weights ;
-  for (int i = 0; i < num_particles; ++i) {
-    all_weights.push_back(particles[i].weight);
-  }
-
-  std::discrete_distribution<int> ddist(all_weights.begin(), all_weights.end());
+  std::discrete_distribution<int> ddist(weights.begin(), weights.end());
 
   std::vector<Particle> old_particles = particles;  
   for (int i = 0; i < num_particles; ++i) {
